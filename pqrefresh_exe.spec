@@ -31,7 +31,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='pqrefresh_exe_v1.4',
+    name='pqrefresh_exe_v1.6',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

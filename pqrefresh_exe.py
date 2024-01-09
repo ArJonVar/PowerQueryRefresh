@@ -1,6 +1,8 @@
 #region imports
 from smartsheet import Smartsheet, sheets, smartsheet
 import os
+import traceback
+import sys
 import concurrent.futures
 import pandas as pd
 from logger import ghetto_logger
@@ -53,6 +55,9 @@ class PQRefresher():
         except Exception as e:
             error='LOCAL ERROR: failed because of bug on deployment computer, check logs for further details'
             self.log.log(e)
+            self.log.log("full traceback & error:")
+            self.log.log(traceback.format_exc())
+            self.log.log(sys.exc_info())
             return error
         finally:
             pythoncom.CoUninitialize() 
@@ -364,7 +369,7 @@ class grid:
     #region post timestamp
     def handle_update_stamps(self):
         '''PUBLIC grabs summary id, and then runs the function that posts the date'''
-        current_date = datetime.date.today()
+        current_date = datetime.today()
         formatted_date = current_date.strftime('%m/%d/%y')
 
         sum_id = self.grabrcreate_sum_id("Last API Automation", "DATE")
