@@ -12,8 +12,11 @@ import pythoncom
 from datetime import datetime
 import time
 import inspect
+import psutil
 from cryptography.fernet import Fernet
 #endregion
+
+# to make exe go to directory w file and run: pyinstaller your_script.spec
 
 class PQRefresher():
     '''Explain Class'''
@@ -28,6 +31,16 @@ class PQRefresher():
         self.start_time = time.time()
         self.log=ghetto_logger("pqrefresh.py")
     #region helpers
+    def kill_excel_instances(self):
+        '''if not, there seems to be errors in ensuring dispatch'''
+        # Iterate over all running process
+        for proc in psutil.process_iter():
+            try:
+                # Check if process name contains the given name string.
+                if "EXCEL.EXE" in proc.name().upper():
+                    proc.kill()
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                pass
     def refresh_power_query(self, excel_file_path):
         '''opens file from path, refreshes, saves, closes'''
         pythoncom.CoInitialize()
@@ -139,6 +152,7 @@ class PQRefresher():
             
     def run(self):
         '''runs main script as intended'''
+        self.kill_excel_instances()
         self.data = self.grab_ss_data()
         self.update = self.refresh_each_excel(self.data)
         self.log.log('posting updates...')
@@ -569,4 +583,3 @@ if __name__ == "__main__":
     }
     pqr=PQRefresher(config)
     pqr.run()
-
