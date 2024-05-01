@@ -24,6 +24,8 @@ class PQRefresher():
         self.config = config
         self.smartsheet_token=config.get('smartsheet_token')
         self.sheet_id=config.get('sheet_id')
+        self.requester=config.get('requester')
+        self.timeout_bounds=config.get('timeout_bounds')
         grid.token=self.smartsheet_token
         self.sheet_instance = grid(self.sheet_id)
         self.smart = smartsheet.Smartsheet(access_token=self.smartsheet_token)
@@ -55,7 +57,8 @@ class PQRefresher():
                 for connection in workbook.Connections:
                     connection.OLEDBConnection.BackgroundQuery = False
             except:
-                self.log.log('could not turn off background refresh')
+                pass
+                # self.log.log('could not turn off background refresh')
             try:
                 workbook.RefreshAll()
                 time.sleep(2)
@@ -77,12 +80,11 @@ class PQRefresher():
 
         return error
     def handle_pqrefresh_wtimeout(self, excel_file_path):
-        '''wrapper for pq refresh function to handle conditional timeouts'''
         file_size_kb = os.path.getsize(excel_file_path) / 1024  # Convert bytes to kilobytes
         if file_size_kb < 1000:
-            timeout = 20 * 60  # 20 minutes in seconds
+            timeout = self.timeout_bounds[0] * 60  # Convert minutes to seconds
         else:
-            timeout = 45 * 60  # 45 minutes in seconds
+            timeout = self.timeout_bounds[1] * 60  # Convert minutes to seconds
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(self.refresh_power_query, excel_file_path)
@@ -96,6 +98,7 @@ class PQRefresher():
                 self.log.log(error)
                 return error
         return None
+
     def now(self):
         '''generates a posting message that says the time/date'''
         now = datetime.now()
@@ -114,49 +117,43 @@ class PQRefresher():
         list_of_datadicts = configurednenabled_df.to_dict(orient='records')
         return list_of_datadicts
     def refresh_each_excel(self, list_of_datadicts):
-        '''loops through paths in smartsheet and refreshes each path'''
-        self.update = []
         self.log.log(f"{len(list_of_datadicts)} items to update")
         for i, item in enumerate(list_of_datadicts):
-            self.log.log(f"updating item {i+1}: {item['Name of Excel File']}")
-            path = item["Z Drive Path-to-file"]
-
-            # Replace 'Z:\\' with 'C:\\Egnyte\\'
-            path = path.replace('Z:\\', 'C:\\Egnyte\\')
-
-            # Replace double backslashes with single backslashes
-            path = path.replace('\\\\', '\\')
-
-            # Remove surrounding double quotes, if present
-            path = path.strip('"')
-
-            # Update the path in the dictionary
-            item["Z Drive Path-to-file"] = path
-
-            error = 'Error Posting'
-
-            if not os.path.isfile(path):
-                error = 'FILE PATH ERROR: file was not found'
-                self.update.append({'Name of Excel File':item['Name of Excel File'], 'Python Message': f'{self.now()} {error}'})
-                continue
-
-            error = self.handle_pqrefresh_wtimeout(path)
-            
-            if error:
-                self.update.append({'Name of Excel File': item['Name of Excel File'], 
-                          'Python Message': f'{self.now()} {error}'})
-            else:
-                self.update.append({'Name of Excel File': item['Name of Excel File'], 
-                          'Python Message': f'{self.now()} Successful Refresh'})
+            self.update = []
+            if item['Requester'] == self.requester:
+                self.log.log(f"updating item {i+1}: {item['Name of Excel File']}")
+                path = item["Z Drive Path-to-file"]
+                path = path.strip('"')  # Clean up path if needed
+                item["Z Drive Path-to-file"] = path
+    
+                if not os.path.isfile(path):
+                    error = 'FILE PATH ERROR: file was not found'
+                    self.update.append({'Name of Excel File': item['Name of Excel File'], 'Python Message': f'{self.now()} {error}'})
+                    continue  # Skip to the next item if file not found
+                
+                error = self.handle_pqrefresh_wtimeout(path)
+                print(error)
+                if error:
+                    self.update.append({'Name of Excel File': item['Name of Excel File'], 'Python Message': f'{self.now()} {error}'})
+                else:         
+                    self.update.append({'Name of Excel File': item['Name of Excel File'], 'Python Message': f'{self.now()} Successful Refresh'})
+                    
+                self.handle_ss_post_update(item['Name of Excel File'])
         return self.update
+    def handle_ss_post_update(self, file_name):
+        '''handles posts to ss'''
+        self.log.log(f"posting update for {file_name}:")
+        try:
+            self.sheet_instance.update_rows(self.update, 'Name of Excel File')
+            self.log.log("Update Posted.")
+        except:
+            self.log.log(f'update failed: {self.update}')
             
     def run(self):
         '''runs main script as intended'''
         self.kill_excel_instances()
         self.data = self.grab_ss_data()
         self.update = self.refresh_each_excel(self.data)
-        self.log.log('posting updates...')
-        self.sheet_instance.update_rows(self.update, 'Name of Excel File')
         self.sheet_instance.handle_update_stamps()
         self.log.log('~fin~')
 
@@ -579,7 +576,9 @@ if __name__ == "__main__":
 
     config = {
         'smartsheet_token':Fernet(key).decrypt(token).decode("utf-8"),
-        'sheet_id': 6463522670071684
+        'sheet_id': 6463522670071684,
+        'requester':'Breezy Andersen',
+        'timeout_bounds':[6,8]
     }
     pqr=PQRefresher(config)
     pqr.run()
