@@ -26,6 +26,7 @@ class PQRefresher():
         self.sheet_id=config.get('sheet_id')
         self.requester=config.get('requester')
         self.timeout_bounds=config.get('timeout_bounds')
+        self.frequency = config.get('frequency')
         grid.token=self.smartsheet_token
         self.sheet_instance = grid(self.sheet_id)
         self.smart = smartsheet.Smartsheet(access_token=self.smartsheet_token)
@@ -113,7 +114,7 @@ class PQRefresher():
         enabled_df = df[df['Enabled'] == True]
         configurednenabled_df = enabled_df[enabled_df['Configured'] == True]
         if datetime.today().weekday() != 5:
-            configurednenabled_df = configurednenabled_df[configurednenabled_df['Refresh Frequency'] != 'Weekly']
+            configurednenabled_df = configurednenabled_df[configurednenabled_df['Refresh Frequency'] == self.frequency]
         list_of_datadicts = configurednenabled_df.to_dict(orient='records')
         return list_of_datadicts
     def refresh_each_excel(self, list_of_datadicts):
@@ -132,7 +133,6 @@ class PQRefresher():
                     continue  # Skip to the next item if file not found
                 
                 error = self.handle_pqrefresh_wtimeout(path)
-                print(error)
                 if error:
                     self.update.append({'Name of Excel File': item['Name of Excel File'], 'Python Message': f'{self.now()} {error}'})
                 else:         
@@ -529,8 +529,8 @@ class ghetto_logger:
         self.first_line_stamp  = f"{self.now}  {title}--"
         self.start_time = time.time()
         if os.name == 'nt':
-            directory = os.path.dirname(r'C:\Egnyte\Shared\IT\Python\Ariel\power_query_refresh\excel\log.txt')
-            logger_name = 'log.txt'
+            directory = os.path.dirname(r'C:\Users\Breezy.Andersen\Desktop')
+            logger_name = 'pqr_refresher_log.txt'
             self.path = os.path.join(directory, logger_name)
         else:
             self.path ="log.txt"
@@ -577,8 +577,9 @@ if __name__ == "__main__":
     config = {
         'smartsheet_token':Fernet(key).decrypt(token).decode("utf-8"),
         'sheet_id': 6463522670071684,
-        'requester':'Breezy Andersen',
-        'timeout_bounds':[6,8]
+        'requester':'Rebecca Wilkins',
+        'frequency': 'Daily',
+        'timeout_bounds':[20,30]
     }
     pqr=PQRefresher(config)
     pqr.run()
