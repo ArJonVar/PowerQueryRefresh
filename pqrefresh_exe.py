@@ -32,7 +32,7 @@ class PQRefresher():
         self.smart = smartsheet.Smartsheet(access_token=self.smartsheet_token)
         self.smart.errors_as_exceptions(True)
         self.start_time = time.time()
-        self.log=ghetto_logger("pqrefresh.py")
+        self.log=ghetto_logger("pqrefresh.py", config.get('log_path'))
     #region helpers
     def kill_excel_instances(self):
         '''if not, there seems to be errors in ensuring dispatch'''
@@ -52,32 +52,53 @@ class PQRefresher():
             excel_app = win32.gencache.EnsureDispatch('Excel.Application')
             excel_app.Interactive = False
             excel_app.Visible = False #set to True for debugging
-            workbook = excel_app.Workbooks.Open(excel_file_path)
+
+            try:
+                workbook = excel_app.Workbooks.Open(excel_file_path)
+            except Exception as e:
+                error = f"FILE OPEN ERROR: could not open file {excel_file_path}: {e}"
+                self.log.log(error)
+                return error
+
             # Disable background refresh and refresh all connections
             try:
                 for connection in workbook.Connections:
                     connection.OLEDBConnection.BackgroundQuery = False
-            except:
-                pass
-                # self.log.log('could not turn off background refresh')
+            except Exception as e:
+                self.log.log(f"Could not turn off background refresh: {e}")
+
             try:
                 workbook.RefreshAll()
-                time.sleep(2)
-            except AttributeError:
-                error= "FILE OPEN ERROR: could not refresh because the file is open somewhere"
+                # Wait for Excel to complete operations
+                while excel_app.CalculationState != 0:
+                    time.sleep(1)
+            except Exception as e:
+                error = f"FILE OPEN ERROR: could not refresh because the file is open somewhere: {e}"
+                self.log.log(error)
                 return error
-            workbook.Save()
-            workbook.Close()
+
+            try:
+                workbook.Save()
+                workbook.Close()
+            except Exception as e:
+                error = f"FILE SAVE/CLOSE ERROR: {e}"
+                self.log.log(error)
+                return error
+
             excel_app.Quit()
+            del workbook
+            del excel_app
+
         except Exception as e:
-            error='LOCAL ERROR: failed because of bug on deployment computer, check logs for further details'
+            error = 'LOCAL ERROR: failed because of bug on deployment computer, check logs for further details'
             self.log.log(e)
             self.log.log("full traceback & error:")
             self.log.log(traceback.format_exc())
             self.log.log(sys.exc_info())
             return error
+
         finally:
-            pythoncom.CoUninitialize() 
+            pythoncom.CoUninitialize()
 
         return error
     def handle_pqrefresh_wtimeout(self, excel_file_path):
@@ -118,11 +139,20 @@ class PQRefresher():
         list_of_datadicts = configurednenabled_df.to_dict(orient='records')
         return list_of_datadicts
     def refresh_each_excel(self, list_of_datadicts):
-        self.log.log(f"{len(list_of_datadicts)} items to update")
+        
+        total_updates = 0
+        for item in list_of_datadicts:
+            if item['Requester'] == self.requester:
+                total_updates = total_updates + 1
+
+        self.log.log(f"{total_updates} items to update")
+
+        update_num = 0
         for i, item in enumerate(list_of_datadicts):
             self.update = []
             if item['Requester'] == self.requester:
-                self.log.log(f"updating item {i+1}: {item['Name of Excel File']}")
+                update_num = update_num + 1
+                self.log.log(f"updating item {update_num}: {item['Name of Excel File']}")
                 path = item["Z Drive Path-to-file"]
                 path = path.strip('"')  # Clean up path if needed
                 item["Z Drive Path-to-file"] = path
@@ -521,7 +551,7 @@ class grid:
 
 class ghetto_logger:
     '''to deploy in class, put self.log=ghetto_logger("<module name>.py"), then ctr f and replace print( w/ self.log.log('''
-    def __init__(self, title, print = True):
+    def __init__(self, title, log_path, print = True):
         raw_now = datetime.now()
         self.print= print
         self.now = raw_now.strftime("%m/%d/%Y %H:%M:%S")
@@ -529,7 +559,7 @@ class ghetto_logger:
         self.first_line_stamp  = f"{self.now}  {title}--"
         self.start_time = time.time()
         if os.name == 'nt':
-            directory = os.path.dirname(r'C:\Users\Breezy.Andersen\Desktop')
+            directory = os.path.dirname(log_path)
             logger_name = 'pqr_refresher_log.txt'
             self.path = os.path.join(directory, logger_name)
         else:
@@ -577,9 +607,11 @@ if __name__ == "__main__":
     config = {
         'smartsheet_token':Fernet(key).decrypt(token).decode("utf-8"),
         'sheet_id': 6463522670071684,
-        'requester':'Rebecca Wilkins',
+        'requester':'First Last',
         'frequency': 'Daily',
-        'timeout_bounds':[20,30]
+        'log_path':r'C:\Users\First.Last\Desktop',
+        # timeout bounds in minutes to try before giving up for "small files" (under 1000 kb) and "large files" (above that)
+        'timeout_bounds':[200,300] 
     }
     pqr=PQRefresher(config)
     pqr.run()
